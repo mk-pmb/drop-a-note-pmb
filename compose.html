@@ -1,0 +1,21 @@
+<!DOCTYPE html><html><head>
+  <meta charset="UTF-8" />
+  <title>drop-a-note</title>
+  <link rel="shortcut icon" href="drop-a-note-16.png"/>
+</head><body>
+  <h2>drop-a-note</h2>
+  <form action="/submit.cgi" method="post" enctype="multipart/form-data"
+    name="compose" target="status" style="width: 42em;">
+    <p>Name: <input type="text" name="from_name" size="40"> (optional)<br />
+    E-Mail: <input type="text" name="from_email" size="40"> (optional)<br />
+    File attachment: <input type="file" name="file" size="25"> (optional)<br />
+    Your message: (optional)<br />
+    <textarea name="msg" cols="80" rows="10" style="width: 100%; resize: both;"
+      placeholder="Your message here"></textarea></p>
+    <p style="text-align: center;"><input type="submit" value="send" /></p>
+    <p>&rarr; status:<br /><iframe id="submit-status" name="status"
+      src="data:text/html,loading%26hellip;" width="400" height="100"
+      style="width: 100%; border: 0px solid black;"></iframe></p>
+  </form>
+  <script type="text/javascript" src="compose.js"></script>
+</body></html>
