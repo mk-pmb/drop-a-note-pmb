@@ -24,10 +24,10 @@ function main () {
     -* ) return 1$(echo "E: unsupported option: $1" >&2);;
   esac
 
-  local HTTPS_PORT="$1"; shift
-  local CERT_PEM="$1"; shift
-  local CERT_KEY="$1"; shift
-  local SOCAT_OPTS=
+  CFG[https-port]="$1"; shift
+  CFG[cert-pem]="$1"; shift
+  CFG[cert-key]="$1"; shift
+  CFG[socat-opts]=
 
   local CONFIG_CANDIDATES=(
     # first existing file wins
@@ -45,30 +45,33 @@ function main () {
     fi
   done
 
-  [ -n "$HTTPS_PORT" ] || HTTPS_PORT=8074
-  [ -n "$CERT_PEM" ] || CERT_PEM="$HOSTNAME".pem
-  [ -r "$CERT_PEM" ] || return 5$(echo "E: cannot read SSL cert: $CERT_PEM" >&2)
-  [ -n "$CERT_KEY" ] || CERT_KEY="$CERT_PEM"
-  [ -r "$CERT_KEY" ] || return 5$(echo "E: cannot read SSL key: $CERT_KEY" >&2)
+  [ -n "${CFG[https-port]}" ] || CFG[https-port]=8074
+  [ -n "${CFG[cert-pem]}" ] || CFG[cert-pem]="$HOSTNAME".pem
+  [ -r "${CFG[cert-pem]}" ] || return 5$(
+    echo "E: cannot read SSL cert: ${CFG[cert-pem]}" >&2)
+  [ -n "${CFG[cert-key]}" ] || CFG[cert-key]="${CFG[cert-pem]}"
+  [ -r "${CFG[cert-key]}" ] || return 5$(
+    echo "E: cannot read SSL key: ${CFG[cert-key]}" >&2)
 
   local DROPANOTE_LOGFN="$HOME/.cache/$APPNAME"
   mkdir -p "$DROPANOTE_LOGFN"
-  DROPANOTE_LOGFN+="/$HTTPS_PORT.$(date +'%Y-%m%d-%H%M').$$.log"
+  DROPANOTE_LOGFN+="/${CFG[https-port]}.$(date +'%Y-%m%d-%H%M').$$.log"
   export DROPANOTE_LOGFN
   echo -n "Trying to append to logfile $DROPANOTE_LOGFN: "
   >>"$DROPANOTE_LOGFN" || return $?
   echo 'ok.'
 
-  local SOCAT_HTTPS="OPENSSL-LISTEN:$HTTPS_PORT"
-  SOCAT_OPTS="${SOCAT_OPTS%,}"
-  SOCAT_OPTS="${SOCAT_OPTS#,}"
-  [ -n "$SOCAT_OPTS" ] && SOCAT_HTTPS+=",$SOCAT_OPTS"
+  local SOCAT_HTTPS="OPENSSL-LISTEN:${CFG[https-port]}"
+  local SOCK_OPTS="${CFG[socat-opts]}"
+  SOCK_OPTS="${SOCK_OPTS%,}"
+  SOCK_OPTS="${SOCK_OPTS#,}"
+  [ -n "$SOCK_OPTS" ] && SOCAT_HTTPS+=",$SOCK_OPTS"
   SOCAT_HTTPS+=",reuseaddr,fork"
   SOCAT_HTTPS+=",method=TLSv1,verify=0"
-  SOCAT_HTTPS+=",cert=$CERT_PEM"
-  SOCAT_HTTPS+=",key=$CERT_KEY"
+  SOCAT_HTTPS+=",cert=${CFG[cert-pem]}"
+  SOCAT_HTTPS+=",key=${CFG[cert-key]}"
   exec 2>&1
-  srvlog "Serving on https://$HOSTNAME:$HTTPS_PORT/ ..."
+  srvlog "Serving on https://$HOSTNAME:${CFG[https-port]}/ ..."
   socat "$SOCAT_HTTPS" EXEC:"$SELFFILE"
 
   return 0
@@ -190,6 +193,7 @@ function https_serve_req () {
 
   REQ_PATH="${REQ_PATH#/}"
   [ -f "$WWW_ROOT/$REQ_PATH" ] || https_error 404 'Page not found'
+  [ -r "$WWW_ROOT/$REQ_PATH" ] || https_error 403 'Access Denied'
   local CLENGTH="$(stat -c %s "$WWW_ROOT/$REQ_PATH")"
   https_reply_head
   cat "$WWW_ROOT/$REQ_PATH"
