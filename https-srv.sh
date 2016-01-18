@@ -175,7 +175,7 @@ function https_serve_req () {
   [ "$REQ_MTHD" == get ] || https_error 405 'Method not allowed'
   <<<"$REQ_PATH" grep -qxPe '(/[a-z0-9][a-z0-9_\-\.]{0,20}){1,5}' \
     || https_error 403 'Access denied' 'Suspicious URI'
-  local CTYPE=application/octet-stream
+  local CTYPE=
   local FN_EXT="${REQ_PATH##*.}"
   case "$FN_EXT" in
     html ) CTYPE=text/"$FN_EXT";;
@@ -186,6 +186,7 @@ function https_serve_req () {
     jpeg | gif | png ) CTYPE=image/"$FN_EXT";;
     * ) https_error 403 'Access denied';;
   esac
+  [ -n "$CTYPE" ] || CTYPE=application/octet-stream
 
   REQ_PATH="${REQ_PATH#/}"
   [ -f "$WWW_ROOT/$REQ_PATH" ] || https_error 404 'Page not found'
@@ -199,10 +200,9 @@ function https_reply_head () {
   local DOC_TITLE="$1"; shift
   [ -n "$HTTP_STATUS" ] || local HTTP_STATUS='200 Ok'
   srvlog "$HTTP_STATUS CT:${CTYPE:-auto}[${CLENGTH:-?}] DT:${DOC_TITLE:---}"
-  echo -e "HTTP/1.0 $HTTP_STATUS\r"
-  echo -e "Content-Type: ${CTYPE:-text/html}\r"
-  [ -n "$CLENGTH" ] && echo -e "Content-Length: $CLENGTH\r"
-  echo -e '\r'
+  printf '%s\r\n' "HTTP/1.0 $HTTP_STATUS" "Content-Type: ${CTYPE:-text/html}"
+  [ -n "$CLENGTH" ] && printf '%s\r\n' "Content-Length: $CLENGTH"
+  printf '%s\r\n' ''
   if [ -z "$CTYPE" ]; then
     echo '<!DOCTYPE html><html lang="en"><head>'
     echo '  <meta charset="UTF-8" />'
@@ -215,9 +215,8 @@ function https_reply_head () {
 function https_error () {
   local ERR_NUM="$1"; shift
   local ERR_TITLE="$1"; shift
-  local HTTP_STATUS="$ERR_NUM $ERR_TITLE"
   local ERR_DESCR="$1"; shift
-  https_reply_head "$ERR_TITLE"
+  HTTP_STATUS="$ERR_NUM $ERR_TITLE" https_reply_head "$ERR_TITLE"
   echo "  <h2>$ERR_TITLE</h2>"
   [ -n "$ERR_DESCR" ] && echo "  <p>$ERR_DESCR</p>"
   echo '</body></html>'
