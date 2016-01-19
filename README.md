@@ -2,8 +2,15 @@
 drop-a-note
 ===========
 
-Minimalist contact form HTTPS server.
+Simple but flexible contact form HTTPS server.
 
+
+Dependencies
+------------
+ * bash
+ * socat
+ * GNU core utils (timeout, head, sed, grep, …)
+ * (Did I forget some?)
 
 
 License
