@@ -380,7 +380,9 @@ function serve_submit () {
     [ "${DEBUGLEVEL:-0}" -ge 4 ] && dump_socat_env 's!^!X-Socat-!'
     )"
   local RV=
-  ( echo "$REQ_HEAD"; echo ) | tee -a "$DROPANOTE_LOGFN" | defused2tty
+  ( echo "$REQ_HEAD"; echo ) | tee -a "$DROPANOTE_LOGFN"
+  [ "${DEBUGLEVEL:-0}" -ge 2 ] && <<<"$REQ_HEAD" defused2tty
+
   if [ -n "$SAVE_BFN" ]; then
     SAVE_BFN+="$(mostly_unique_id)"
     echo "$REQ_HEAD" >"$SAVE_BFN.head"
