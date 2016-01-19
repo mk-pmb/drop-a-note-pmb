@@ -165,6 +165,12 @@ function https_read_header_lines () {
 }
 
 
+function https_temp_redir () {
+  local EXTRA_HEADER="Location: $1"
+  CTYPE='-/-' HTTP_STATUS=302 https_reply_head 'Found'
+}
+
+
 function https_serve_req () {
   local REQ_PATH="$(https_read_header_lines 1)"
   [ -n "$REQ_PATH" ] || return 0  # 1$(echo "E: $$: no request" >&2)
@@ -181,6 +187,7 @@ function https_serve_req () {
   source "$DROPANOTE_CONFIG" || return $?
   cfg_default body-maxlen 102400
   cfg_default www-root "$SELFPATH"
+  cfg_default path: redir:compose.html
 
   case "$REQ_MTHD" in
     get | post ) REQ_PATH="${REQ_PATH#* }";;
@@ -213,12 +220,9 @@ function https_serve_req () {
     /socat-debug )
       serve_debug
       return $?;;
-    / )
-      echo -e 'HTTP/1.0 302 Found\r\nLocation: compose.html\r\n\r'
-      return 0;;
   esac
 
-  local LEGIT_PATH_RGX='(/[a-z0-9][a-z0-9_\-\.]{0,20}){1,5}'
+  local LEGIT_PATH_RGX='/|(/[a-z0-9][a-z0-9_\-\.]{0,20}){1,5}'
   <<<"$REQ_PATH" grep -qxPe "$LEGIT_PATH_RGX" \
     || https_error 403 'Access denied' 'Suspicious URI'
   REQ_PATH="${REQ_PATH#/}"
@@ -238,8 +242,7 @@ function https_serve_req () {
       source "$REQ_FILE"
       return 0;;
     redir:* )
-      EXTRA_HEADER="Location: ${REQ_FILE#*:}" CTYPE='-/-' \
-        HTTP_STATUS=302 https_reply_head 'Found'
+      https_temp_redir "${REQ_FILE#*:}"
       return 0;;
     '' )
       REQ_FILE="${CFG[www-root]%/}/$REQ_PATH";;
