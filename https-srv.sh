@@ -178,6 +178,7 @@ function https_serve_req () {
   local REMOTE_ADDR="$SOCAT_PEERADDR"
   local REQ_MTHD="${REQ_PATH%% *}"
   REQ_MTHD="${REQ_MTHD,,}"
+  REQ_PATH="${REQ_PATH#* }"
   local REQ_PROTO="${REQ_PATH##* }"
   srvlog "$REMOTE_ADDR $REQ_PATH"
 
@@ -185,97 +186,108 @@ function https_serve_req () {
     | grep -oPe '\d+$')"
 
   source "$DROPANOTE_CONFIG" || return $?
-  cfg_default body-maxlen 102400
+  cfg_default accept-methods get,put,post
+  cfg_default url-maxlen 314
+  cfg_default body-maxlen 31415
   cfg_default www-root "$SELFPATH"
   cfg_default path: redir:compose.html
-
-  case "$REQ_MTHD" in
-    get | post ) REQ_PATH="${REQ_PATH#* }";;
-    * ) https_error 400 'Bad Request' 'unsupported method';;
-  esac
+  cfg_default path:submit.cgi serve:submit
+  cfg_default path:socat_debug serve:socat_debug
 
   case "$REQ_PROTO" in
     'HTTP/1.0' | 'HTTP/1.1' ) REQ_PATH="${REQ_PATH% *}";;
     * ) https_error 400 'Bad Request' 'unsupported protocol version';;
   esac
 
+  <<<" ${CFG[accept-methods]}" tr ',\t\r\n' ' ' | grep -qFe " $REQ_MTHD " \
+    || https_error 400 'Bad Request' 'unsupported method'
+
+  [ "${#REQ_PATH}" -le "${CFG[url-maxlen]}" ] \
+    || https_error 414 'URI too long' "max. ${CFG[url-maxlen]} bytes"
   [ "${REQ_CLEN:-0}" -le "${CFG[body-maxlen]}" ] \
     || https_error 413 'Payload too large' "max. ${CFG[body-maxlen]} bytes"
 
-  case "$REQ_PATH" in
-    /contact-form/* | \
-    /"$APPNAME"/* )
-      REQ_PATH="/${REQ_PATH#/*/}";;
-  esac
-
   local REQ_QSTR="${REQ_PATH#*\?}"
   [ "$REQ_QSTR" == "$REQ_PATH" ] && REQ_QSTR=
+  export QUERY_STRING="$REQ_QSTR"
   REQ_PATH="${REQ_PATH%%\?*}"
-
-  case "$REQ_PATH" in
-    /submit.cgi )
-      # serve_debug; return $?
-      serve_submit
-      return $?;;
-    /socat-debug )
-      serve_debug
-      return $?;;
-  esac
 
   local LEGIT_PATH_RGX='/|(/[a-z0-9][a-z0-9_\-\.]{0,20}){1,5}'
   <<<"$REQ_PATH" grep -qxPe "$LEGIT_PATH_RGX" \
-    || https_error 403 'Access denied' 'Suspicious URI'
+    || https_error 403 'Access denied' 'Suspicious URL'
   REQ_PATH="${REQ_PATH#/}"
 
   local REQ_FILE="${CFG[path:$REQ_PATH]}"
-  case "$REQ_FILE" in
-    home:* ) REQ_FILE="$HOME/${REQ_FILE#*:}";;
-    file:* ) REQ_FILE="${REQ_FILE#*:}";;
-    reply:* )
-      REQ_FILE="${REQ_FILE#*:}"
+  [ -n "$REQ_FILE" ] || REQ_FILE="www:$REQ_PATH"
+  local HND_CMD=( "${REQ_FILE%%:*}" )
+  [ "${HND_CMD[0]}" == "$REQ_FILE" ] && HND_CMD=( '??' )
+  REQ_FILE="${REQ_FILE#*:}"
+  case "${HND_CMD[0]}" in
+    www )
+      HND_CMD=( serve_file )
+      REQ_FILE="${CFG[www-root]%/}/$REQ_FILE";;
+    404 )
+      HND_CMD=( https_error 404 'Page not found' )
+      REQ_FILE=;;
+    http-err ) HND_CMD=( https_error );;
+    file ) HND_CMD=( serve_file );;
+    reply )
       srvlog "replaying exact response file: $REQ_FILE"
-      cat "$REQ_FILE"
-      return 0;;
-    cgi-source:* )
-      REQ_FILE="${REQ_FILE#*:}"
-      srvlog "source-CGI: $REQ_FILE"
-      source "$REQ_FILE"
-      return 0;;
-    redir:* )
-      https_temp_redir "${REQ_FILE#*:}"
-      return 0;;
-    '' )
-      REQ_FILE="${CFG[www-root]%/}/$REQ_PATH";;
+      HND_CMD=( cat -- );;
+    serve )
+      HND_CMD=( "${HND_CMD[0]}_${REQ_FILE}" )
+      REQ_FILE=;;
+    eval ) ;;
+    stdio       ) HND_CMD=( serve_wrap_stdio      );;
+    stdio+eval  ) HND_CMD=( serve_wrap_stdio eval );;
+    redir ) HND_CMD=( https_temp_redir );;
     * ) https_error 500 'Internal Server Error' 'config: bad alias';;
   esac
 
-  [ "$REQ_MTHD" == get ] || https_error 405 'Method not allowed'
-  serve_file "$REQ_FILE"
+  [ "${DEBUGLEVEL:-0}" -ge 1 ] && \
+    srvlog "response: ${HND_CMD[*]} '$REQ_FILE'"
+  if [ -n "$REQ_FILE" ]; then
+    [ "${REQ_FILE:0:2}" == '~/' ] && REQ_FILE="$HOME/${REQ_FILE:2}"
+    HND_CMD+=( "$REQ_FILE" )
+  fi
+  "${HND_CMD[@]}"
+  return 0
 }
 
 
 function serve_file () {
   local SRC_FN="$1"; shift
+  [ "$REQ_MTHD" == get ] || https_error 405 'Method not allowed'
   [ -f "$SRC_FN" ] || https_error 404 'Page not found'
-  [ -r "$SRC_FN" ] || https_error 403 'Access Denied'
+  [ -r "$SRC_FN" ] || https_error 403 'Access denied'
 
-  local FN_EXT="${REQ_PATH##*.}"
-  local CTYPE=
-  case "$FN_EXT" in
-    html ) CTYPE=text/"$FN_EXT";;
-    txt ) CTYPE=text/plain;;
-    js ) CTYPE=application/javascript;;
-    ico ) CTYPE=image/x-icon;;
-    jpg ) CTYPE=image/jpeg;;
-    jpeg | gif | png ) CTYPE=image/"$FN_EXT";;
-    * ) https_error 403 'Access denied';;
-  esac
+  local FN_EXT_ORIG="${REQ_PATH##*.}"
+  local CTYPE="${CFG[ctype:$FN_EXT_ORIG]}"
+  if [ -z "$CTYPE" ]; then
+    case "$FN_EXT_ORIG" in
+      html  ) CTYPE=text/"$FN_EXT_ORIG";;
+      txt   ) CTYPE=text/plain;;
+      js    ) CTYPE=application/javascript;;
+      json  ) CTYPE=application/"$FN_EXT_ORIG";;
+      ico   ) CTYPE=image/x-icon;;
+      jpg   ) CTYPE=image/jpeg;;
+      jpeg | gif | png ) CTYPE=image/"$FN_EXT_ORIG";;
+      * )   CTYPE=http/403;;
+    esac
+  fi
+  [ "$CTYPE" == http/403 ] && https_error 403 'Access denied'
   [ -n "$CTYPE" ] || CTYPE=application/octet-stream
 
-  local SRC_FLT="${CFG[filter:$FN_EXT]}"
+  local SRC_FLT="${CFG[filter:$FN_EXT_ORIG]}"
   if [ -n "$SRC_FLT" ]; then
-    [ -x "$SRC_FLT" ] \
-      || CTYPE= https_error 500 'Internal Server Error' 'cannot run filter'
+    [ "${SRC_FLT:0:2}" == '~/' && SRC_FLT="$HOME/${SRC_FLT:2}"
+    if [ "${SRC_FLT:0:1}" != / ]; then
+      if [ "$(type -t "$SRC_FLT")" != function ]; then
+        SRC_FLT="$(try_which "$SRC_FLT")"
+        [ -x "$SRC_FLT" ] \
+          || https_error 500 'Internal Server Error' 'cannot run filter'
+      fi
+    fi
     https_reply_head
     "$SRC_FLT" "$SRC_FN"
     return 0
@@ -284,6 +296,11 @@ function serve_file () {
   CLENGTH="$(stat -c %s "$SRC_FN")" https_reply_head
   cat "$SRC_FN"
   return 0
+}
+
+
+function try_which () {
+  which "$1" 2>/dev/null | grep -Pe '^/' -m 1 || echo "$1"
 }
 
 
@@ -339,7 +356,7 @@ function https_error () {
   local ERR_NUM="$1"; shift
   local ERR_TITLE="$1"; shift
   local ERR_DESCR="$1"; shift
-  HTTP_STATUS="$ERR_NUM $ERR_TITLE" https_reply_head "$ERR_TITLE"
+  HTTP_STATUS="$ERR_NUM $ERR_TITLE" CTYPE= https_reply_head "$ERR_TITLE"
   echo "  <h2>$ERR_TITLE</h2>"
   [ -n "$ERR_DESCR" ] && echo "  <p>$ERR_DESCR</p>"
   echo '</body></html>'
@@ -357,7 +374,7 @@ function dump_socat_env () {
 }
 
 
-function serve_debug () {
+function serve_socat_debug () {
   CTYPE='text/plain' https_reply_head 'debug info'
   echo -ne 'DATE:\t'; date -R
   dump_socat_env 's~: ~&\t~'
@@ -369,6 +386,14 @@ function serve_debug () {
 }
 
 
+function serve_wrap_stdio () {
+  CTYPE='text/plain' https_reply_head
+  local STDIN_SRC=( https_read_body )
+  [ "$REQ_MTHD" == get ] && STDIN_SRC=( false )
+  "${STDIN_SRC[@]}" | "$@" 2>&1
+}
+
+
 function csed () {
   LANG=C sed "$@"
   return $?
@@ -376,19 +401,20 @@ function csed () {
 
 
 function serve_submit () {
+  https_reply_head
+
   local SAVE_BFN="${CFG[body-storage]}"
   local BODY_SIZE=
-  REQ_HEAD+="$(echo; echo
-    LANG=C LC_ALL=C date +'X-Received-At: %s %a %F %T %z (%Z)'
-    [ "${DEBUGLEVEL:-0}" -ge 4 ] && dump_socat_env 's!^!X-Socat-!'
-    )"
   local RV=
-  ( echo "$REQ_HEAD"; echo ) | tee -a "$DROPANOTE_LOGFN"
+  [ "${DEBUGLEVEL:-0}" -ge 4 ] && dump_socat_env 's!^!X-Socat-!' >&2
   [ "${DEBUGLEVEL:-0}" -ge 2 ] && <<<"$REQ_HEAD" defused2tty
 
   if [ -n "$SAVE_BFN" ]; then
     SAVE_BFN+="$(mostly_unique_id)"
-    echo "$REQ_HEAD" >"$SAVE_BFN.head"
+    ( echo "$REQ_HEAD"
+      LANG=C LC_ALL=C date +'X-Received-At: %s %a %F %T %z (%Z)'
+      echo "X-Remote-Addr: $REMOTE_ADDR"
+    ) >"$SAVE_BFN.head"
     RV=$?
     [ "$RV" == 0 ] || srvlog "E: Failed ($RV) to save $SAVE_BFN.head"
     REQ_BODY="$(https_read_body | tee -a "$DROPANOTE_LOGFN" "$SAVE_BFN.body")"
@@ -404,9 +430,9 @@ function serve_submit () {
     srvlog "D: request has been logged to $DROPANOTE_LOGFN"
     BODY_SIZE="${#REQ_BODY}"
   fi
-  https_reply_head
   echo "  <p>[$(date +%T)] received ${BODY_SIZE:-?error?} bytes</p>"
   echo '</body></html>'
+  <<<"$REQ_BODY" defused2tty
 }
 
 
