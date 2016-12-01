@@ -2,7 +2,12 @@
   <meta charset="UTF-8" />
   <title>drop-a-note</title>
   <link rel="shortcut icon" href="drop-a-note-16.png"/>
-</head><body>
+</head><body style="margin: 2em;">
+  <form action="dwnl/" method="get" target="_blank" name="dwnl_box"
+    id="dwnl-box" style="float: right;">
+    <input type="submit" value="Download:"> <input type="text"
+      name="." size="15" value="filename" placeholder="filename">
+  </form>
   <h2>drop-a-note</h2>
   <form action="/submit.cgi" method="post" enctype="multipart/form-data"
     name="compose" target="status" style="width: 42em;">

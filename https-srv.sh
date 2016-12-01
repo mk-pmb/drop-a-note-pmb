@@ -9,6 +9,7 @@ function main () {
   local APPNAME='drop-a-note'
 
   local -A CFG
+  CFG[legit_path_rgx]='/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
   [ -n "$DROPANOTE_CONFIG" ] || local DROPANOTE_CONFIG="$(guess_config_file)"
   [ "${DEBUGLEVEL:-0}" -gt 2 ] && echo "D: config file: $CFG_FN" >&2
   export DROPANOTE_CONFIG
@@ -190,8 +191,10 @@ function https_serve_req () {
   cfg_default url-maxlen 314
   cfg_default body-maxlen 31415
   cfg_default www-root "$SELFPATH"
-  cfg_default path: redir:compose.html
+  cfg_default index-fn index.html
+  cfg_default path: redir:./compose.html
   cfg_default path:submit.cgi serve:submit
+  cfg_default path:dwnl/ serve:dwnl_redir
   cfg_default path:socat_debug serve:socat_debug
 
   case "$REQ_PROTO" in
@@ -212,8 +215,7 @@ function https_serve_req () {
   export QUERY_STRING="$REQ_QSTR"
   REQ_PATH="${REQ_PATH%%\?*}"
 
-  local LEGIT_PATH_RGX='/|(/[a-z0-9][a-z0-9_\-\.]{0,20}){1,5}'
-  <<<"$REQ_PATH" grep -qxPe "$LEGIT_PATH_RGX" \
+  <<<"$REQ_PATH" grep -qxPe "${CFG[legit_path_rgx]}" \
     || https_error 403 'Access denied' 'Suspicious URL'
   REQ_PATH="${REQ_PATH#/}"
 
@@ -258,6 +260,9 @@ function https_serve_req () {
 function serve_file () {
   local SRC_FN="$1"; shift
   [ "$REQ_MTHD" == get ] || https_error 405 'Method not allowed'
+  case "$SRC_FN" in
+    */ ) https_temp_redir ./"${CFG[index-fn]}"; return $?;;
+  esac
   [ -f "$SRC_FN" ] || https_error 404 'Page not found'
   [ -r "$SRC_FN" ] || https_error 403 'Access denied'
 
@@ -269,9 +274,18 @@ function serve_file () {
       txt   ) CTYPE=text/plain;;
       js    ) CTYPE=application/javascript;;
       json  ) CTYPE=application/"$FN_EXT_ORIG";;
+
       ico   ) CTYPE=image/x-icon;;
       jpg   ) CTYPE=image/jpeg;;
-      jpeg | gif | png ) CTYPE=image/"$FN_EXT_ORIG";;
+      gif | jpeg | png ) CTYPE=image/"$FN_EXT_ORIG";;
+
+      tar | gz | tgz | bz2 | \
+      arj | cab | lzh | rar | \
+      zip ) CTYPE=application/x-compressed;;
+
+      dll | exe | iso | \
+      bin ) CTYPE=application/octet-stream;;
+
       * )   CTYPE=http/403;;
     esac
   fi
@@ -371,6 +385,14 @@ function dump_socat_env () {
     s~^(\w+)(addr|port):~\1\u\2\E:~
     s~^p*id:~\U&\E~i
     '"$1" | sort -V
+}
+
+
+function serve_dwnl_redir () {
+  local DL_FN="/${REQ_QSTR#\.=}"
+  DL_FN="$(<<<"$DL_FN" grep -xPe "${CFG[legit_path_rgx]}")"
+  DL_FN="${DL_FN#/}"
+  https_temp_redir "./${DL_FN:-${CFG[index-fn]}}"
 }
 
 
