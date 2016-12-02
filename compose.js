@@ -3,6 +3,8 @@
 (function () {
   'use strict';
 
+  function rand36() { return Math.random().toString(36).replace(/^0\./, ''); }
+
   var setStatus, statusFrame = document.getElementById('submit-status'),
     extractTimeRgx = /^[\s\S]* ([0-9:]{8}) [\s\S]*$/,
     composeForm = document.forms.compose;
@@ -15,6 +17,13 @@
     setTimeout(function () { composeForm.submit(); }, 50);
     return false;
   };
-  setStatus('ready');
 
+  composeForm.elements.genpasswd.onclick = function () {
+    var use = window.prompt('random password:', rand36());
+    if (use) { composeForm.elements.passwd.value = use; }
+  };
+
+  composeForm.elements.sess.value = [rand36(), rand36(), rand36()].join('-');
+
+  setStatus('ready');
 }());
