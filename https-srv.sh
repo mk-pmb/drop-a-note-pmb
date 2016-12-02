@@ -167,8 +167,34 @@ function https_read_header_lines () {
 
 
 function https_temp_redir () {
-  local EXTRA_HEADER="Location: $1"
+  local DEST="$1"
+  [ -n "$DEST" ] || https_error 500 'Internal Server Error' 'bad redirect'
+  local EXTRA_HEADER="Location: $DEST"
   CTYPE='-/-' HTTP_STATUS=302 https_reply_head 'Found'
+}
+
+
+function https_temp_redir_file () {
+  # pick the earliest file that exists, or the last option if none exist.
+  local FN="$*"
+  FN="${FN// /$'\n'}"
+  FN="${FN//\|/$'\n'}"
+  local FNS=()
+  readarray -t FNS <<<"$FN"
+  for FN in "${FNS[@]}"; do
+    [ -f "${REQ_BASEDIR:-.}/$FN" ] && break
+  done
+  [ -n "$FN" ] && FN="./$FN"
+  "${FUNCNAME%_*}" "$FN"
+  return $?
+}
+
+
+function https_require_basic_auth_for () {
+  local EXTRA_HEADER='WWW-Authenticate: Basic realm="%"'
+  EXTRA_HEADER="${EXTRA_HEADER//%/$*}"
+  https_error 401 'Login required'
+  return $?
 }
 
 
@@ -185,6 +211,7 @@ function https_serve_req () {
 
   local REQ_CLEN="$(<<<"$REQ_HEAD" grep -xPe 'Content-Length:\s*\d+' -m 1 \
     | grep -oPe '\d+$')"
+  local REQ_AUTH="$(<<<"$REQ_HEAD" sed -nre 's~^Authorization:\s*~~p')"
 
   source "$DROPANOTE_CONFIG" || return $?
   cfg_default accept-methods get,put,post
@@ -192,7 +219,7 @@ function https_serve_req () {
   cfg_default body-maxlen 31415
   cfg_default www-root "$SELFPATH"
   cfg_default index-fn index.html
-  cfg_default path: redir:./compose.html
+  cfg_default path: 'redir+file:index.html compose.html'
   cfg_default path:submit.cgi serve:submit
   cfg_default path:dwnl/ serve:dwnl_redir
   cfg_default path:socat_debug serve:socat_debug
@@ -218,6 +245,7 @@ function https_serve_req () {
   <<<"$REQ_PATH" grep -qxPe "${CFG[legit_path_rgx]}" \
     || https_error 403 'Access denied' 'Suspicious URL'
   REQ_PATH="${REQ_PATH#/}"
+  local REQ_BASEDIR="$(dirname "$REQ_PATH"x)"
 
   local REQ_FILE="${CFG[path:$REQ_PATH]}"
   [ -n "$REQ_FILE" ] || REQ_FILE="www:$REQ_PATH"
@@ -242,7 +270,8 @@ function https_serve_req () {
     eval ) ;;
     stdio       ) HND_CMD=( serve_wrap_stdio      );;
     stdio+eval  ) HND_CMD=( serve_wrap_stdio eval );;
-    redir ) HND_CMD=( https_temp_redir );;
+    redir )       HND_CMD=( https_temp_redir );;
+    redir+file )  HND_CMD=( https_temp_redir_file );;
     * ) https_error 500 'Internal Server Error' 'config: bad alias';;
   esac
 
@@ -257,14 +286,38 @@ function https_serve_req () {
 }
 
 
+function auch_basic_check_file () {
+  local AUTH_FILE="$1"; shift
+  local AUTH_METHOD="${REQ_AUTH%% *}"
+  [ "${AUTH_METHOD,,}" == basic ] || return 11
+  local AUTH_USER="${REQ_AUTH# *}"
+  [ -n "$AUTH_USER" ] || return 12
+  [ -f "$AUTH_FILE" ] || return 13
+  grep -qxFe "$REQ_AUTH" "$AUTH_FILE" || return 14
+  return 0
+}
+
+
 function serve_file () {
   local SRC_FN="$1"; shift
   [ "$REQ_MTHD" == get ] || https_error 405 'Method not allowed'
   case "$SRC_FN" in
-    */ ) https_temp_redir ./"${CFG[index-fn]}"; return $?;;
+    */ ) https_temp_redir_file "${CFG[index-fn]}"; return $?;;
   esac
   [ -f "$SRC_FN" ] || https_error 404 'Page not found'
   [ -r "$SRC_FN" ] || https_error 403 'Access denied'
+
+  local AUTH_FILE=
+  for AUTH_FILE in "$SRC_FN".{auth,passwd} ''; do
+    [ -n "$AUTH_FILE" -a -e "$AUTH_FILE" ] && break
+  done
+  if [ -n "$AUTH_FILE" ]; then
+    if ! auch_basic_check_file "$AUTH_FILE"; then
+      srvlog "failed auth attempt: $REQ_AUTH"
+      https_require_basic_auth_for "/$REQ_PATH"
+      return $?
+    fi
+  fi
 
   local FN_EXT_ORIG="${REQ_PATH##*.}"
   local CTYPE="${CFG[ctype:$FN_EXT_ORIG]}"
@@ -286,7 +339,8 @@ function serve_file () {
       dll | exe | iso | \
       bin ) CTYPE=application/octet-stream;;
 
-      * )   CTYPE=http/403;;
+      auth | passwd ) CTYPE=http/403;;
+      * ) CTYPE=http/403;;
     esac
   fi
   [ "$CTYPE" == http/403 ] && https_error 403 'Access denied'
@@ -389,10 +443,11 @@ function dump_socat_env () {
 
 
 function serve_dwnl_redir () {
+  [ "$REQ_MTHD" == get ] || https_error 405 'Method not allowed'
   local DL_FN="/${REQ_QSTR#\.=}"
   DL_FN="$(<<<"$DL_FN" grep -xPe "${CFG[legit_path_rgx]}")"
   DL_FN="${DL_FN#/}"
-  https_temp_redir "./${DL_FN:-${CFG[index-fn]}}"
+  https_temp_redir_file "${DL_FN:-${CFG[index-fn]}}"
 }
 
 
