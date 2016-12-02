@@ -221,8 +221,9 @@ function https_serve_req () {
   cfg_default index-fn index.html
   cfg_default path: 'redir+file:index.html compose.html'
   cfg_default path:submit.cgi serve:submit
-  cfg_default path:dwnl/ serve:dwnl_redir
   cfg_default path:socat_debug serve:socat_debug
+  cfg_default path:dwnl/ serve:dwnl_redir
+  cfg_default expiry:get:favicon.ico '+12 hours'
 
   case "$REQ_PROTO" in
     'HTTP/1.0' | 'HTTP/1.1' ) REQ_PATH="${REQ_PATH% *}";;
@@ -396,7 +397,7 @@ function https_read_body () {
 
 
 function http_date () {
-  local UTC_DATE="$(date -Ru)"
+  local UTC_DATE="$(date -Ru "$@")"
   echo "${UTC_DATE% *} UTC"
 }
 
@@ -406,10 +407,20 @@ function https_reply_head () {
   [ -n "$HTTP_STATUS" ] || local HTTP_STATUS='200 Ok'
   srvlog "$HTTP_STATUS CT:${CTYPE:-auto}[${CLENGTH:-?}] DT:${DOC_TITLE:---}"
   printf '%s\r\n' "HTTP/1.0 $HTTP_STATUS" "Date: $(http_date)"
+
+  local EXPY="$EXPIRY_DATE"
+  [ -n "$EXPY" ] || EXPY="${CFG[expiry:$REQ_MTHD:$REQ_PATH]}"
+  [ -n "$EXPY" ] || EXPY="${CFG[expiry:*:$REQ_PATH]}"
+  [ -n "$EXPY" ] || EXPY="${CFG[expiry:$REQ_MTHD:*]}"
+  [ -n "$EXPY" ] || EXPY="${CFG[expiry:*:*]}"
+  [ -n "$EXPY" ] || EXPY='@42'
+  [ "$EXPY" != - ] && printf '%s\r\n' "Expires: $(http_date --date="$EXPY")"
+
   # [ -n "$DOC_TITLE" ] && printf '%s\r\n' "Title: $DOC_TITLE"
   [ "$CTYPE" != -/- ] && printf '%s\r\n' "Content-Type: ${CTYPE:-text/html}"
   [ -n "$CLENGTH" ] && printf '%s\r\n' "Content-Length: $CLENGTH"
   [ -n "$EXTRA_HEADER" ] && printf '%s\r\n' "$EXTRA_HEADER"
+
   printf '%s\r\n' ''
   if [ -z "$CTYPE" ]; then
     echo '<!DOCTYPE html><html lang="en"><head>'
