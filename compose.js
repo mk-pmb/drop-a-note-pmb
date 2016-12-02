@@ -3,27 +3,34 @@
 (function () {
   'use strict';
 
+  function byid(id) { return document.getElementById(id); }
+
   function rand36() { return Math.random().toString(36).replace(/^0\./, ''); }
+  rand36.sess = [rand36(), rand36(), rand36()].join('-');
 
-  var setStatus, statusFrame = document.getElementById('submit-status'),
-    extractTimeRgx = /^[\s\S]* ([0-9:]{8}) [\s\S]*$/,
-    composeForm = document.forms.compose;
-  setStatus = function (msg) {
-    statusFrame.src = 'data:text/html,' + encodeURIComponent(msg);
-  };
-  composeForm.onsubmit = function () {
-    setStatus('[' + String(new Date()).replace(extractTimeRgx, '$1') +
-      '] submitting&hellip;');
-    setTimeout(function () { composeForm.submit(); }, 50);
-    return false;
-  };
+  function timeOfDay() {
+    var time = String(new Date());
+    return ((time.match(/ ([0-9:]{8}) /) || false)[1] || time);
+  }
 
-  composeForm.elements.genpasswd.onclick = function () {
-    var use = window.prompt('random password:', rand36());
-    if (use) { composeForm.elements.passwd.value = use; }
-  };
+  function setStatus(msg) {
+    msg = '[' + timeOfDay() + '] ' + msg;
+    byid('submit-status').src = 'data:text/html,' + encodeURIComponent(msg);
+  }
 
-  composeForm.elements.sess.value = [rand36(), rand36(), rand36()].join('-');
+  (function initComposeForm() {
+    var compoForm = document.forms.compose;
+    compoForm.elements.sess.value = rand36.sess;
+    compoForm.onsubmit = function () {
+      setStatus('submitting&hellip;');
+      setTimeout(function () { compoForm.submit(); }, 50);
+      return false;
+    };
+    compoForm.elements.genpasswd.onclick = function () {
+      var use = window.prompt('random password:', rand36());
+      if (use) { compoForm.elements.passwd.value = use; }
+    };
+  }());
 
   setStatus('ready');
 }());
