@@ -207,11 +207,23 @@ function https_serve_req () {
   REQ_MTHD="${REQ_MTHD,,}"
   REQ_PATH="${REQ_PATH#* }"
   local REQ_PROTO="${REQ_PATH##* }"
-  srvlog "$REMOTE_ADDR $REQ_PATH"
+  REQ_PATH="${REQ_PATH% *}"
 
   local REQ_CLEN="$(<<<"$REQ_HEAD" grep -xPe 'Content-Length:\s*\d+' -m 1 \
     | grep -oPe '\d+$')"
   local REQ_AUTH="$(<<<"$REQ_HEAD" sed -nre 's~^Authorization:\s*~~p')"
+  local REQ_ALLCOOKIES="$(<<<"$REQ_HEAD" sed -nre '
+    s~\r~~g
+    s~\s*\;\s*~\n~g
+    s~^Cookie:\s*~~p')"
+  local -A REQ_COOKIES    # not implemented yet
+  local REQ_SESS="$(<<<"$REQ_ALLCOOKIES" grep -xPe 'sess=[A-Za-z0-9_\-]+' \
+    -m 1 | cut -d = -f 2-)"
+
+  local REQ_LOGMSG="$REMOTE_ADDR $REQ_PATH"
+  [ "${REQ_CLEN:-0}" -gt 0 ] && REQ_LOGMSG+=" body:$REQ_CLEN"
+  [ -n "$REQ_SESS" ] && REQ_LOGMSG+=" sess:$REQ_SESS"
+  srvlog "$REQ_LOGMSG"
 
   source "$DROPANOTE_CONFIG" || return $?
   cfg_default accept-methods get,put,post
@@ -223,10 +235,13 @@ function https_serve_req () {
   cfg_default path:submit.cgi serve:submit
   cfg_default path:socat_debug serve:socat_debug
   cfg_default path:dwnl/ serve:dwnl_redir
-  cfg_default expiry:get:favicon.ico '+12 hours'
+  cfg_default expiry:get+fext:ico '+12 hours'
+  cfg_default expiry:get+fext:png '+12 hours'
+  cfg_default expiry:get+fext:js '+1 hour'
+  cfg_default expiry:get+fext:html '+1 hour'
 
   case "$REQ_PROTO" in
-    'HTTP/1.0' | 'HTTP/1.1' ) REQ_PATH="${REQ_PATH% *}";;
+    'HTTP/1.0' | 'HTTP/1.1' ) ;;
     * ) https_error 400 'Bad Request' 'unsupported protocol version';;
   esac
 
@@ -362,6 +377,8 @@ function serve_file () {
     return 0
   fi
 
+  [ -n "$EXPIRY_DATE" ] || local EXPIRY_DATE=$(
+    )"${CFG[expiry:get+fext:$FN_EXT_ORIG]}"
   CLENGTH="$(stat -c %s "$SRC_FN")" https_reply_head
   cat "$SRC_FN"
   return 0

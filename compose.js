@@ -6,7 +6,21 @@
   function byid(id) { return document.getElementById(id); }
 
   function rand36() { return Math.random().toString(36).replace(/^0\./, ''); }
-  rand36.sess = [rand36(), rand36(), rand36()].join('-');
+
+  function sessionId() {
+    if (sessionId.cache) { return sessionId.cache; }
+    var sessId = /(?:^|;)\s*sess=([A-Za-z0-9_\-]{10,})/.exec(document.cookie);
+    if (sessId) {
+      sessId = sessId[1];
+    } else {
+      sessId = [rand36(), rand36(), rand36()].join('-');
+      document.cookie = ['sess=' + sessId, 'path=/', 'secure',
+        // 'HttpOnly',
+        ].join('; ');
+    }
+    sessionId.cache = sessId;
+    return sessId;
+  }
 
   function timeOfDay() {
     var time = String(new Date());
@@ -20,7 +34,7 @@
 
   (function initComposeForm() {
     var compoForm = document.forms.compose;
-    compoForm.elements.sess.value = rand36.sess;
+    compoForm.elements.sess.value = sessionId();
     compoForm.onsubmit = function () {
       setStatus('submitting&hellip;');
       setTimeout(function () { compoForm.submit(); }, 50);
