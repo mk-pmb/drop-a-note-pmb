@@ -10,12 +10,12 @@ function drop_a_note () {
   cd -- "$SELFPATH" || return $?
 
   local -A CFG=(
-    [legit_path_rgx]='/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
     [explicit_ssl_method]=  # Deprecated; use only for ancient socat.
     [handler_installers]='cfg_default_dropanote_handlers'
+    [socat-opts]=
     )
   [ -n "$DROPANOTE_CONFIG" ] || local DROPANOTE_CONFIG="$(guess_config_file)"
-  [ "${DEBUGLEVEL:-0}" -gt 2 ] && echo "D: config file: $CFG_FN" >&2
+  [ "${DEBUGLEVEL:-0}" -lt 2 ] || echo D: "config file: $CFG_FN" >&2
   export DROPANOTE_CONFIG
 
   case "$1" in
@@ -32,16 +32,21 @@ function drop_a_note () {
     -* ) return 1$(echo "E: unsupported option: $1" >&2);;
   esac
 
+  drop_a_note_socat_switch "$@" || return $?
+}
+
+
+function drop_a_note_socat_switch () {
   if [ -n "$SOCAT_PEERADDR" ]; then
     https_serve_req
     return $?
   fi
 
-  CFG[https-port]="$1"; shift
-  CFG[cert-pem]="$1"; shift
-  CFG[cert-key]="$1"; shift
-  CFG[socat-opts]=
-  source_in_func -- "$DROPANOTE_CONFIG" || return $?
+  [ -z "$1" ] || CFG[https-port]="$1"; shift
+  [ -z "$1" ] || CFG[cert-pem]="$1"; shift
+  [ -z "$1" ] || CFG[cert-key]="$1"; shift
+  [ -z "$DROPANOTE_CONFIG" ] \
+    || in_func source -- "$DROPANOTE_CONFIG" || return $?
 
   cfg_default https-port 8074
   cfg_maybe_set_default_certs || return $?
@@ -79,7 +84,7 @@ function drop_a_note () {
 }
 
 
-function source_in_func () { source "$@"; }
+function in_func () { "$@"; }
 
 
 function srvlog () {
@@ -236,11 +241,13 @@ function https_serve_req () {
   [ -n "$REQ_SESS" ] && REQ_LOGMSG+=" sess:$REQ_SESS"
   srvlog "$REQ_LOGMSG"
 
-  source_in_func -- "$DROPANOTE_CONFIG" || return $?
+  [ -z "$DROPANOTE_CONFIG" ] \
+    || in_func source -- "$DROPANOTE_CONFIG" || return $?
   cfg_default accept-methods get,put,post
   cfg_default url-maxlen 314
   cfg_default body-maxlen 31415
   cfg_default www-root "$SELFPATH"
+  cfg_default legit_path_rgx '/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
   cfg_default index-fn index.html
   cfg_install_handlers || return $?
 
