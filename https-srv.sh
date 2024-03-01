@@ -12,6 +12,7 @@ function drop_a_note () {
   local -A CFG=(
     [legit_path_rgx]='/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
     [explicit_ssl_method]=  # Deprecated; use only for ancient socat.
+    [handler_installers]='cfg_default_dropanote_handlers'
     )
   [ -n "$DROPANOTE_CONFIG" ] || local DROPANOTE_CONFIG="$(guess_config_file)"
   [ "${DEBUGLEVEL:-0}" -gt 2 ] && echo "D: config file: $CFG_FN" >&2
@@ -241,14 +242,7 @@ function https_serve_req () {
   cfg_default body-maxlen 31415
   cfg_default www-root "$SELFPATH"
   cfg_default index-fn index.html
-  cfg_default path: 'redir+file:index.html compose.html'
-  cfg_default path:submit.cgi serve:submit
-  cfg_default path:socat_debug serve:socat_debug
-  cfg_default path:dwnl/ serve:dwnl_redir
-  cfg_default expiry:get+fext:ico '+12 hours'
-  cfg_default expiry:get+fext:png '+12 hours'
-  cfg_default expiry:get+fext:js '+1 hour'
-  cfg_default expiry:get+fext:html '+1 hour'
+  cfg_install_handlers || return $?
 
   case "$REQ_PROTO" in
     'HTTP/1.0' | 'HTTP/1.1' ) ;;
@@ -323,6 +317,26 @@ function cfg_maybe_set_default_certs () {
   cfg_default cert-key "${CFG[cert-pem]}"
   [ -r "${CFG[cert-key]}" ] || return 5$(
     echo "E: cannot read SSL key: ${CFG[cert-key]}" >&2)
+}
+
+
+function cfg_install_handlers () {
+  local HND=
+  for HND in ${CFG[handler_installers]}; do
+    "$HND" || return $?$(echo E: "Failed to $FUNCNAME '$HND'" >&2)
+  done
+}
+
+
+function cfg_default_dropanote_handlers () {
+  cfg_default path: 'redir+file:index.html compose.html'
+  cfg_default path:submit.cgi serve:submit
+  cfg_default path:socat_debug serve:socat_debug
+  cfg_default path:dwnl/ serve:dwnl_redir
+  cfg_default expiry:get+fext:ico '+12 hours'
+  cfg_default expiry:get+fext:png '+12 hours'
+  cfg_default expiry:get+fext:js '+1 hour'
+  cfg_default expiry:get+fext:html '+1 hour'
 }
 
 
