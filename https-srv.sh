@@ -11,6 +11,7 @@ function drop_a_note () {
 
   local -A CFG=(
     [legit_path_rgx]='/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
+    [explicit_ssl_method]=  # Deprecated; use only for ancient socat.
     )
   [ -n "$DROPANOTE_CONFIG" ] || local DROPANOTE_CONFIG="$(guess_config_file)"
   [ "${DEBUGLEVEL:-0}" -gt 2 ] && echo "D: config file: $CFG_FN" >&2
@@ -63,7 +64,9 @@ function drop_a_note () {
   SOCK_OPTS="${SOCK_OPTS#,}"
   [ -n "$SOCK_OPTS" ] && SOCAT_HTTPS+=",$SOCK_OPTS"
   SOCAT_HTTPS+=",reuseaddr,fork"
-  SOCAT_HTTPS+=",method=TLSv1,verify=0"
+  SOCAT_HTTPS+=",verify=0"
+  [ -z "${CFG[explicit_ssl_method]}" ] \
+    || SOCAT_HTTPS+=",method=${CFG[explicit_ssl_method]}"
   SOCAT_HTTPS+=",cert=${CFG[cert-pem]}"
   SOCAT_HTTPS+=",key=${CFG[cert-key]}"
   exec 2>&1
