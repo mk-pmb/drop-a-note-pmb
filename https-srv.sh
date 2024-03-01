@@ -43,12 +43,7 @@ function drop_a_note () {
   source_in_func -- "$DROPANOTE_CONFIG" || return $?
 
   cfg_default https-port 8074
-  cfg_default cert-pem "$HOSTNAME".pem
-  [ -r "${CFG[cert-pem]}" ] || return 5$(
-    echo "E: cannot read SSL cert: ${CFG[cert-pem]}" >&2)
-  cfg_default cert-key "${CFG[cert-pem]}"
-  [ -r "${CFG[cert-key]}" ] || return 5$(
-    echo "E: cannot read SSL key: ${CFG[cert-key]}" >&2)
+  cfg_maybe_set_default_certs || return $?
 
   local DROPANOTE_LOGFN="${CFG[logsdir]:-$HOME/.cache/$APPNAME}"
   mkdir --parents -- "$DROPANOTE_LOGFN"
@@ -58,20 +53,28 @@ function drop_a_note () {
   >>"$DROPANOTE_LOGFN" || return $?
   echo 'ok.'
 
-  local SOCAT_HTTPS="OPENSSL-LISTEN:${CFG[https-port]}"
+  local SSL_MTHD="${CFG[explicit_ssl_method]}"
+  local LSN_PORT="${CFG[https-port]}"
+  local SOCAT_LISTEN="OPENSSL-LISTEN:$LSN_PORT"
+  local URL_PROTO='https'
+  case "$SSL_MTHD" in
+    unencrypted ) URL_PROTO='http'; SOCAT_LISTEN="TCP-LISTEN:$LSN_PORT";;
+  esac
   local SOCK_OPTS="${CFG[socat-opts]}"
   SOCK_OPTS="${SOCK_OPTS%,}"
   SOCK_OPTS="${SOCK_OPTS#,}"
-  [ -n "$SOCK_OPTS" ] && SOCAT_HTTPS+=",$SOCK_OPTS"
-  SOCAT_HTTPS+=",reuseaddr,fork"
-  SOCAT_HTTPS+=",verify=0"
-  [ -z "${CFG[explicit_ssl_method]}" ] \
-    || SOCAT_HTTPS+=",method=${CFG[explicit_ssl_method]}"
-  SOCAT_HTTPS+=",cert=${CFG[cert-pem]}"
-  SOCAT_HTTPS+=",key=${CFG[cert-key]}"
+  [ -n "$SOCK_OPTS" ] && SOCAT_LISTEN+=",$SOCK_OPTS"
+  SOCAT_LISTEN+=",reuseaddr,fork"
+
+  if [ "$SSL_MTHD" != unencrypted ]; then
+    SOCAT_LISTEN+=",verify=0"
+    [ -z "$SSL_MTHD" ] || SOCAT_LISTEN+=",method=$SSL_MTHD"
+    SOCAT_LISTEN+=",cert=${CFG[cert-pem]}"
+    SOCAT_LISTEN+=",key=${CFG[cert-key]}"
+  fi
   exec 2>&1
-  srvlog "Serving on https://$HOSTNAME:${CFG[https-port]}/ ..."
-  socat "$SOCAT_HTTPS" EXEC:"$SELFFILE" || return $?
+  srvlog "Serving on $URL_PROTO://$HOSTNAME:$LSN_PORT/ ..."
+  socat "$SOCAT_LISTEN" EXEC:"$SELFFILE" || return $?
 }
 
 
@@ -306,6 +309,20 @@ function https_serve_req () {
   fi
   "${HND_CMD[@]}"
   return 0
+}
+
+
+function cfg_maybe_set_default_certs () {
+  case "${CFG[explicit_ssl_method]}" in
+    unencrypted ) return 0;;
+  esac
+
+  cfg_default cert-pem "$HOSTNAME".pem
+  [ -r "${CFG[cert-pem]}" ] || return 5$(
+    echo "E: cannot read SSL cert: ${CFG[cert-pem]}" >&2)
+  cfg_default cert-key "${CFG[cert-pem]}"
+  [ -r "${CFG[cert-key]}" ] || return 5$(
+    echo "E: cannot read SSL key: ${CFG[cert-key]}" >&2)
 }
 
 
