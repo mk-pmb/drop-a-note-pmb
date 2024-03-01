@@ -1,15 +1,17 @@
 #!/bin/bash
 # -*- coding: utf-8, tab-width: 2 -*-
-SELFFILE="$(readlink -m "$0")"; SELFPATH="$(dirname "$SELFFILE")"
-SELFNAME="$(basename "$SELFFILE" .sh)"
 
 
-function main () {
-  cd "$SELFPATH" || return $?
-  local APPNAME='drop-a-note'
+function drop_a_note () {
+  local APPNAME="${FUNCNAME//_/-}"
+  export LANG{,UAGE}=en_US.UTF-8  # make error messages search engine-friendly
+  local SELFFILE="$(readlink -m -- "$BASH_SOURCE")"
+  local SELFPATH="$(dirname -- "$SELFFILE")"
+  cd -- "$SELFPATH" || return $?
 
-  local -A CFG
-  CFG[legit_path_rgx]='/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
+  local -A CFG=(
+    [legit_path_rgx]='/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
+    )
   [ -n "$DROPANOTE_CONFIG" ] || local DROPANOTE_CONFIG="$(guess_config_file)"
   [ "${DEBUGLEVEL:-0}" -gt 2 ] && echo "D: config file: $CFG_FN" >&2
   export DROPANOTE_CONFIG
@@ -37,7 +39,7 @@ function main () {
   CFG[cert-pem]="$1"; shift
   CFG[cert-key]="$1"; shift
   CFG[socat-opts]=
-  source "$DROPANOTE_CONFIG" || return $?
+  source_in_func -- "$DROPANOTE_CONFIG" || return $?
 
   cfg_default https-port 8074
   cfg_default cert-pem "$HOSTNAME".pem
@@ -48,7 +50,7 @@ function main () {
     echo "E: cannot read SSL key: ${CFG[cert-key]}" >&2)
 
   local DROPANOTE_LOGFN="${CFG[logsdir]:-$HOME/.cache/$APPNAME}"
-  mkdir -p "$DROPANOTE_LOGFN"
+  mkdir --parents -- "$DROPANOTE_LOGFN"
   DROPANOTE_LOGFN+="/${CFG[https-port]}.$(mostly_unique_id).log"
   export DROPANOTE_LOGFN
   echo -n "Trying to append to logfile $DROPANOTE_LOGFN: "
@@ -66,10 +68,11 @@ function main () {
   SOCAT_HTTPS+=",key=${CFG[cert-key]}"
   exec 2>&1
   srvlog "Serving on https://$HOSTNAME:${CFG[https-port]}/ ..."
-  socat "$SOCAT_HTTPS" EXEC:"$SELFFILE"
-
-  return 0
+  socat "$SOCAT_HTTPS" EXEC:"$SELFFILE" || return $?
 }
+
+
+function source_in_func () { source "$@"; }
 
 
 function srvlog () {
@@ -107,14 +110,15 @@ function guess_config_file () {
 
 
 function gen_sed_utf8ctrl () {
-  local -A UTF8_HEX
-  UTF8_HEX[replm-char]='\xef\xbf\xbd'
-  UTF8_HEX[ctrl-cr]='\xe2\x90\x8d'
-  UTF8_HEX[ctrl-lf]='\xe2\x90\x8a'
-  UTF8_HEX[ctrl-nl]='\xe2\x90\xa4'
-  UTF8_HEX[ctrl-tab]='\xe2\x90\x89'
-  UTF8_HEX[ctrl-esc]='\xe2\x90\x9b'
-  UTF8_HEX[ctrl-del]='\xe2\x90\xa1'
+  local -A UTF8_HEX=(
+    [replm-char]='\xef\xbf\xbd'
+    [ctrl-cr]='\xe2\x90\x8d'
+    [ctrl-lf]='\xe2\x90\x8a'
+    [ctrl-nl]='\xe2\x90\xa4'
+    [ctrl-tab]='\xe2\x90\x89'
+    [ctrl-esc]='\xe2\x90\x9b'
+    [ctrl-del]='\xe2\x90\xa1'
+    )
   echo '
     s~\x01~\n~g   # unpack newlines
     s~\x1b~'"${UTF8_HEX[ctrl-esc]}"'~g
@@ -216,7 +220,7 @@ function https_serve_req () {
     s~\r~~g
     s~\s*\;\s*~\n~g
     s~^Cookie:\s*~~p')"
-  local -A REQ_COOKIES    # not implemented yet
+  local -A REQ_COOKIES=() # not implemented yet
   local REQ_SESS="$(<<<"$REQ_ALLCOOKIES" grep -xPe 'sess=[A-Za-z0-9_\-]+' \
     -m 1 | cut -d = -f 2-)"
 
@@ -225,7 +229,7 @@ function https_serve_req () {
   [ -n "$REQ_SESS" ] && REQ_LOGMSG+=" sess:$REQ_SESS"
   srvlog "$REQ_LOGMSG"
 
-  source "$DROPANOTE_CONFIG" || return $?
+  source_in_func -- "$DROPANOTE_CONFIG" || return $?
   cfg_default accept-methods get,put,post
   cfg_default url-maxlen 314
   cfg_default body-maxlen 31415
@@ -284,8 +288,8 @@ function https_serve_req () {
       HND_CMD=( "${HND_CMD[0]}_${REQ_FILE}" )
       REQ_FILE=;;
     eval ) ;;
-    stdio       ) HND_CMD=( serve_wrap_stdio      );;
-    stdio+eval  ) HND_CMD=( serve_wrap_stdio eval );;
+    stdio )       HND_CMD=( serve_wrap_stdio );;
+    stdio+eval )  HND_CMD=( serve_wrap_stdio eval );;
     redir )       HND_CMD=( https_temp_redir );;
     redir+file )  HND_CMD=( https_temp_redir_file );;
     * ) https_error 500 'Internal Server Error' 'config: bad alias';;
@@ -551,4 +555,4 @@ function serve_submit () {
 
 
 
-main "$@"; exit $?
+[ "$1" == --lib ] && return 0; drop_a_note "$@"; exit $?
