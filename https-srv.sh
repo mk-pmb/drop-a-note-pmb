@@ -236,7 +236,7 @@ function https_serve_req () {
   local REQ_SESS="$(<<<"$REQ_ALLCOOKIES" grep -xPe 'sess=[A-Za-z0-9_\-]+' \
     -m 1 | cut -d = -f 2-)"
 
-  local REQ_LOGMSG="$REMOTE_ADDR $REQ_PATH"
+  local REQ_LOGMSG="$REMOTE_ADDR $REQ_MTHD $REQ_PATH"
   [ "${REQ_CLEN:-0}" -gt 0 ] && REQ_LOGMSG+=" body:$REQ_CLEN"
   [ -n "$REQ_SESS" ] && REQ_LOGMSG+=" sess:$REQ_SESS"
   srvlog "$REQ_LOGMSG"
