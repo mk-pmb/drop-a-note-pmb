@@ -256,7 +256,7 @@ function https_serve_req () {
     * ) https_error 400 'Bad Request' 'unsupported protocol version';;
   esac
 
-  <<<" ${CFG[accept-methods]}" tr ',\t\r\n' ' ' | grep -qFe " $REQ_MTHD " \
+  [[ " ${CFG[accept-methods]//$',\t\r\n'/ } " == *" $REQ_MTHD "* ]] \
     || https_error 400 'Bad Request' 'unsupported method'
 
   [ "${#REQ_PATH}" -le "${CFG[url-maxlen]}" ] \
