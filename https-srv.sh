@@ -248,6 +248,7 @@ function https_serve_req () {
   cfg_default body-maxlen 31415
   cfg_default www-root "$SELFPATH"
   cfg_default legit_path_rgx '/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
+  cfg_default legit_path_rgx:connect '[a-z0-9][a-z0-9_\.\-]{0,100}:[0-9]+'
   cfg_default index-fn index.html
   cfg_install_handlers || return $?
 
@@ -269,12 +270,17 @@ function https_serve_req () {
   export QUERY_STRING="$REQ_QSTR"
   REQ_PATH="${REQ_PATH%%\?*}"
 
-  <<<"$REQ_PATH" grep -qxPe "${CFG[legit_path_rgx]}" \
+  local RGX="${CFG[legit_path_rgx:$REQ_MTHD]}"
+  [ -n "$RGX" ] || RGX="${CFG[legit_path_rgx]}"
+  <<<"$REQ_PATH" grep -qxPe "$RGX" \
     || https_error 403 'Access denied' 'Suspicious URL'
   REQ_PATH="${REQ_PATH#/}"
   local REQ_BASEDIR="$(dirname "$REQ_PATH"x)"
 
-  local REQ_FILE="${CFG[path:$REQ_PATH]}"
+  local REQ_FILE=
+  [ -n "$REQ_FILE" ] || REQ_FILE="${CFG[mthd:$REQ_MTHD:path:$REQ_PATH]}"
+  [ -n "$REQ_FILE" ] || REQ_FILE="${CFG[mthd:$REQ_MTHD]}"
+  [ -n "$REQ_FILE" ] || REQ_FILE="${CFG[path:$REQ_PATH]}"
   [ -n "$REQ_FILE" ] || REQ_FILE="www:$REQ_PATH"
   local HND_CMD=( "${REQ_FILE%%:*}" )
   [ "${HND_CMD[0]}" == "$REQ_FILE" ] && HND_CMD=( '??' )
@@ -336,6 +342,7 @@ function cfg_install_handlers () {
 
 
 function cfg_default_dropanote_handlers () {
+  cfg_default mthd:connect 'http-err:403:Access denied'
   cfg_default path: 'redir+file:index.html compose.html'
   cfg_default path:submit.cgi serve:submit
   cfg_default path:socat_debug serve:socat_debug
