@@ -186,7 +186,7 @@ function https_temp_redir () {
   local DEST="$1"
   [ -n "$DEST" ] || https_error 500 'Internal Server Error' 'bad redirect'
   local EXTRA_HEADER="Location: $DEST"
-  CTYPE='-/-' HTTP_STATUS=302 https_reply_head 'Found'
+  https_reply_head CTYPE='-/-' HTTP_STATUS=302 DOC_TITLE='Found'
 }
 
 
@@ -465,9 +465,12 @@ function http_date () {
 
 
 function https_reply_head () {
-  local DOC_TITLE="$1"; shift
-  [ -n "$HTTP_STATUS" ] || local HTTP_STATUS='200 Ok'
-  srvlog "$HTTP_STATUS CT:${CTYPE:-auto}[${CLENGTH:-?}] DT:${DOC_TITLE:---}"
+  local HTTP_STATUS="${HTTP_STATUS:-200 Ok}"
+  local "$@"
+  local LOG_MSG="$HTTP_STATUS CT:${CTYPE:-auto}[${CLENGTH:-?}]$(
+    ) DT:${DOC_TITLE:---} LM: $LOG_MSG"
+  LOG_MSG="${LOG_MSG% LM: }"
+  srvlog "$LOG_MSG"
   printf '%s\r\n' "HTTP/1.0 $HTTP_STATUS" "Date: $(http_date)"
 
   local EXPY="$EXPIRY_DATE"
@@ -497,7 +500,8 @@ function https_error () {
   local ERR_NUM="$1"; shift
   local ERR_TITLE="$1"; shift
   local ERR_DESCR="$1"; shift
-  HTTP_STATUS="$ERR_NUM $ERR_TITLE" CTYPE= https_reply_head "$ERR_TITLE"
+  https_reply_head HTTP_STATUS="$ERR_NUM $ERR_TITLE" CTYPE= \
+    DOC_TITLE="$ERR_TITLE" LOG_MSG="$ERR_DESCR"
   echo "  <h2>$ERR_TITLE</h2>"
   [ -n "$ERR_DESCR" ] && echo "  <p>$ERR_DESCR</p>"
   echo '</body></html>'
@@ -525,7 +529,7 @@ function serve_dwnl_redir () {
 
 
 function serve_socat_debug () {
-  CTYPE='text/plain' https_reply_head 'debug info'
+  https_reply_head CTYPE='text/plain' DOC_TITLE='debug info'
   echo -ne 'DATE:\t'; date -R
   dump_socat_env 's~: ~&\t~'
   echo
