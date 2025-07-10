@@ -1,0 +1,24 @@
+{ "name": "drop-a-note-pmb",
+  "version": "0.0.0",
+  "description": "Simple but flexible contact form HTTPS server. bash + socat.",
+  "keywords": [],
+
+  "author": "M.K. (https://github.com/mk-pmb)",
+  "homepage": "https://github.com/mk-pmb/drop-a-note-pmb/#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mk-pmb/drop-a-note-pmb.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mk-pmb/drop-a-note-pmb/issues"
+  },
+  "contributors": [],
+
+  "private": true, "license": "MIT",
+
+  "scripts": { "test": "echo 'Stub!'; exit 2" },
+  "directories": { "test": "test" },
+
+
+  "engines": { "npm": ">=7.0.0", "bash": ">=5.0.0" }
+}
