@@ -15,7 +15,7 @@ function drop_a_note () {
     [socat-opts]=
     )
   [ -n "$DROPANOTE_CONFIG" ] || local DROPANOTE_CONFIG="$(guess_config_file)"
-  [ "${DEBUGLEVEL:-0}" -lt 2 ] || echo D: "config file: $CFG_FN" >&2
+  [ "${DEBUGLEVEL:-0}" -lt 2 ] || echo D: "pid: $$ config file: $CFG_FN" >&2
   export DROPANOTE_CONFIG
 
   case "$1" in
@@ -250,7 +250,8 @@ function https_serve_req () {
   cfg_default legit_path_rgx '/|(/[a-z0-9][a-z0-9_\.\-]{0,40}){1,8}/?'
   cfg_default legit_path_rgx:connect '[a-z0-9][a-z0-9_\.\-]{0,100}:[0-9]+'
   cfg_default index-fn index.html
-  cfg_install_handlers || return $?
+  cfg_install_handlers || return $?$(
+    echo E: $FUNCNAME: "Failed to install handlers: rv=$?" >&2)
 
   case "$REQ_PROTO" in
     'HTTP/1.0' | 'HTTP/1.1' ) ;;
@@ -336,8 +337,10 @@ function cfg_maybe_set_default_certs () {
 function cfg_install_handlers () {
   local HND=
   for HND in ${CFG[handler_installers]}; do
+    srvlog "install handler $HND"
     "$HND" || return $?$(echo E: "Failed to $FUNCNAME '$HND'" >&2)
   done
+  srvlog "installed all handlers"
 }
 
 
